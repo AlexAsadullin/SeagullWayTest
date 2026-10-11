@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol, Self
 from uuid import UUID
 
@@ -64,3 +65,15 @@ class UnitOfWork(Protocol):
     async def __aexit__(self, *exc: object) -> None: ...
 
     async def commit(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxMessage:
+    id: UUID
+    event_type: str
+    payload: dict[str, Any]
+    occurred_at: datetime
+
+
+class EventPublisher(Protocol):
+    async def publish(self, message: OutboxMessage) -> None: ...

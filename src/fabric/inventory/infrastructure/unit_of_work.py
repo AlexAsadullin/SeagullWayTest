@@ -2,6 +2,7 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from fabric.inventory.infrastructure.outbox import outbox_row
 from fabric.inventory.infrastructure.repositories import (
     SqlIdempotencyStore,
     SqlOrderRepository,
@@ -25,4 +26,6 @@ class SqlAlchemyUnitOfWork:
         await self.session.close()
 
     async def commit(self) -> None:
+        for order in self.orders.seen:
+            self.session.add_all(outbox_row(event) for event in order.pull_events())
         await self.session.commit()
