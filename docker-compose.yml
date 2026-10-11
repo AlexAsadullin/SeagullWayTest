@@ -12,3 +12,27 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fabric:fabric@db:5432/fabric
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  relay:
+    build: .
+    command: ["python", "-m", "fabric.relay"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fabric:fabric@db:5432/fabric
+    depends_on:
+      api:
+        condition: service_healthy
