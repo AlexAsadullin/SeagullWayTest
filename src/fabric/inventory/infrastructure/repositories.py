@@ -36,8 +36,8 @@ class SqlRollRepository:
         return await self._load(query)
 
     async def lock_by_sku(self, sku: FabricSku) -> list[Roll]:
-        # Every reserve takes row locks in the same id order, so two reserves on one sku
-        # queue up behind each other instead of deadlocking.
+        # Reserve and cancel both lock rolls in id order, so two transactions over the same
+        # rolls queue up behind each other instead of deadlocking.
         query = select(RollRow).where(RollRow.sku == str(sku)).order_by(RollRow.id)
         return await self._load(query.with_for_update())
 

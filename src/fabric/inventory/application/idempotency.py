@@ -6,7 +6,6 @@ from fabric.inventory.application.ports import IdempotentRequest, Reply, UnitOfW
 async def run_once(
     uow: UnitOfWork, request: IdempotentRequest, command: Callable[[UnitOfWork], Awaitable[Reply]]
 ) -> Reply:
-    """Run the command once per idempotency key, repeats get the stored reply back."""
     async with uow:
         stored = await uow.idempotency_keys.claim(request)
         if stored is not None:

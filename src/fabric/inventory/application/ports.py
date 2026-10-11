@@ -43,9 +43,8 @@ class Reply:
 
 
 class IdempotencyStore(Protocol):
-    async def claim(self, request: IdempotentRequest) -> Reply | None:
-        """None means the key is ours now, otherwise the reply stored by the first request."""
-        ...
+    # None means this request owns the key now, otherwise it gets the reply of the first one.
+    async def claim(self, request: IdempotentRequest) -> Reply | None: ...
 
     async def complete(self, request: IdempotentRequest, reply: Reply) -> None: ...
 
