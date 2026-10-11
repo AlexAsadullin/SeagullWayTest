@@ -1,5 +1,8 @@
+import asyncio
 import os
 
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -20,3 +23,12 @@ def make_engine(url: str) -> AsyncEngine:
 
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def database_is_up(engine: AsyncEngine) -> bool:
+    try:
+        async with asyncio.timeout(2), engine.connect() as connection:
+            await connection.execute(text("select 1"))
+    except (OSError, TimeoutError, SQLAlchemyError):
+        return False
+    return True
