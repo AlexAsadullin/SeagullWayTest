@@ -43,3 +43,12 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=fabric --cov-report=term-missing"
+
+[tool.coverage.run]
+branch = true
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+fail_under = 85
+exclude_also = ['if __name__ == "__main__":']
