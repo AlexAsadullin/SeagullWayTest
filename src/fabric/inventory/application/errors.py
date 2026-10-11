@@ -8,3 +8,7 @@ class ApplicationError(Exception):
 
 class OrderNotFound(ApplicationError):
     code = "order_not_found"
+
+
+class IdempotencyKeyConflict(ApplicationError):
+    code = "idempotency_key_conflict"

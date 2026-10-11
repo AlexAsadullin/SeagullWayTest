@@ -1,5 +1,6 @@
 from collections.abc import Iterable
-from typing import Protocol, Self
+from dataclasses import dataclass
+from typing import Any, Protocol, Self
 from uuid import UUID
 
 from fabric.inventory.domain.order import ProductionOrder
@@ -27,12 +28,36 @@ class OrderRepository(Protocol):
     async def save(self, order: ProductionOrder) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class IdempotentRequest:
+    key: str
+    endpoint: str
+    request_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class Reply:
+    status: int
+    body: dict[str, Any]
+
+
+class IdempotencyStore(Protocol):
+    async def claim(self, request: IdempotentRequest) -> Reply | None:
+        """None means the key is ours now, otherwise the reply stored by the first request."""
+        ...
+
+    async def complete(self, request: IdempotentRequest, reply: Reply) -> None: ...
+
+
 class UnitOfWork(Protocol):
     @property
     def rolls(self) -> RollRepository: ...
 
     @property
     def orders(self) -> OrderRepository: ...
+
+    @property
+    def idempotency_keys(self) -> IdempotencyStore: ...
 
     async def __aenter__(self) -> Self: ...
 

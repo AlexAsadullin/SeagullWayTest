@@ -1,12 +1,14 @@
+import hashlib
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 
 from fabric.api.schemas import ErrorOut, OrderIn, OrderOut, RollIn, RollOut
 from fabric.inventory.application import use_cases
-from fabric.inventory.application.ports import UnitOfWork
+from fabric.inventory.application.idempotency import run_once
+from fabric.inventory.application.ports import IdempotentRequest, Reply, UnitOfWork
 from fabric.inventory.domain.values import FabricSku, Meters
 from fabric.inventory.infrastructure.db import database_is_up
 
@@ -20,7 +22,16 @@ def unit_of_work(request: Request) -> UnitOfWork:
     return uow
 
 
+async def idempotent_request(
+    request: Request,
+    key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
+) -> IdempotentRequest:
+    body_hash = hashlib.sha256(await request.body()).hexdigest()
+    return IdempotentRequest(key, f"{request.method} {request.url.path}", body_hash)
+
+
 Uow = Annotated[UnitOfWork, Depends(unit_of_work)]
+Idempotent = Annotated[IdempotentRequest, Depends(idempotent_request)]
 
 
 @router.post("/rolls", status_code=201)
@@ -54,20 +65,24 @@ async def get_order(order_id: UUID, uow: Uow) -> OrderOut:
         return OrderOut.of(await use_cases.get_order(uow, order_id))
 
 
-@router.post("/orders/{order_id}/reserve")
-async def reserve_order(order_id: UUID, uow: Uow) -> OrderOut:
-    async with uow:
+@router.post("/orders/{order_id}/reserve", response_model=OrderOut)
+async def reserve_order(order_id: UUID, uow: Uow, request: Idempotent) -> JSONResponse:
+    async def reserve(uow: UnitOfWork) -> Reply:
         order = await use_cases.reserve_order(uow, order_id)
-        await uow.commit()
-    return OrderOut.of(order)
+        return Reply(200, OrderOut.of(order).model_dump(mode="json"))
+
+    reply = await run_once(uow, request, reserve)
+    return JSONResponse(reply.body, status_code=reply.status)
 
 
-@router.post("/orders/{order_id}/cancel")
-async def cancel_order(order_id: UUID, uow: Uow) -> OrderOut:
-    async with uow:
+@router.post("/orders/{order_id}/cancel", response_model=OrderOut)
+async def cancel_order(order_id: UUID, uow: Uow, request: Idempotent) -> JSONResponse:
+    async def cancel(uow: UnitOfWork) -> Reply:
         order = await use_cases.cancel_order(uow, order_id)
-        await uow.commit()
-    return OrderOut.of(order)
+        return Reply(200, OrderOut.of(order).model_dump(mode="json"))
+
+    reply = await run_once(uow, request, cancel)
+    return JSONResponse(reply.body, status_code=reply.status)
 
 
 @router.get("/health")

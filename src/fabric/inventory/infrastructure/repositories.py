@@ -2,13 +2,21 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fabric.inventory.application.errors import IdempotencyKeyConflict
+from fabric.inventory.application.ports import IdempotentRequest, Reply
 from fabric.inventory.domain.order import OrderStatus, ProductionOrder, ReservationLine
 from fabric.inventory.domain.roll import Roll
 from fabric.inventory.domain.values import FabricSku, Meters
-from fabric.inventory.infrastructure.models import OrderRow, ReservationLineRow, RollRow
+from fabric.inventory.infrastructure.models import (
+    IdempotencyKeyRow,
+    OrderRow,
+    ReservationLineRow,
+    RollRow,
+)
 
 
 class SqlRollRepository:
@@ -121,3 +129,35 @@ class SqlOrderRepository:
     def _track(self, order: ProductionOrder, row: OrderRow) -> None:
         self._rows[order.id] = row
         self.seen.append(order)
+
+
+class SqlIdempotencyStore:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def claim(self, request: IdempotentRequest) -> Reply | None:
+        # A second request with the same key blocks on the unique index here until the first
+        # one commits, then it falls through and reads the stored reply.
+        inserted = await self._session.scalar(
+            insert(IdempotencyKeyRow)
+            .values(key=request.key, endpoint=request.endpoint, request_hash=request.request_hash)
+            .on_conflict_do_nothing(index_elements=[IdempotencyKeyRow.key])
+            .returning(IdempotencyKeyRow.key)
+        )
+        if inserted is not None:
+            return None
+
+        row = await self._session.get_one(IdempotencyKeyRow, request.key)
+        if (row.endpoint, row.request_hash) != (request.endpoint, request.request_hash):
+            raise IdempotencyKeyConflict(
+                f"key {request.key} was already used for another request to {row.endpoint}"
+            )
+        assert row.response_status is not None and row.response_body is not None
+        return Reply(row.response_status, row.response_body)
+
+    async def complete(self, request: IdempotentRequest, reply: Reply) -> None:
+        await self._session.execute(
+            update(IdempotencyKeyRow)
+            .where(IdempotencyKeyRow.key == request.key)
+            .values(response_status=reply.status, response_body=reply.body)
+        )

@@ -3,10 +3,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from fabric.inventory.application.errors import ApplicationError, OrderNotFound
+from fabric.inventory.application.errors import (
+    ApplicationError,
+    IdempotencyKeyConflict,
+    OrderNotFound,
+)
 from fabric.inventory.domain.errors import DomainError, InvalidValue
 
-APPLICATION_STATUS: dict[type[ApplicationError], int] = {OrderNotFound: 404}
+APPLICATION_STATUS: dict[type[ApplicationError], int] = {
+    OrderNotFound: 404,
+    IdempotencyKeyConflict: 409,
+}
 
 
 def error_response(status: int, error: str, detail: str) -> JSONResponse:

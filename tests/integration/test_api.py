@@ -1,27 +1,9 @@
-from typing import Any
 from uuid import uuid4
 
 from httpx import ASGITransport, AsyncClient
 
 from fabric.main import create_app
-
-
-async def add_roll(client: AsyncClient, meters: str, sku: str = "TKN-0001") -> dict[str, Any]:
-    response = await client.post("/rolls", json={"sku": sku, "total_meters": meters})
-    assert response.status_code == 201, response.text
-    roll: dict[str, Any] = response.json()
-    return roll
-
-
-async def add_order(
-    client: AsyncClient, quantity: int, per_unit: str, sku: str = "TKN-0001"
-) -> dict[str, Any]:
-    response = await client.post(
-        "/orders", json={"sku": sku, "quantity": quantity, "consumption_per_unit": per_unit}
-    )
-    assert response.status_code == 201, response.text
-    order: dict[str, Any] = response.json()
-    return order
+from tests.integration.api_helpers import add_order, add_roll, cancel, reserve
 
 
 async def test_roll_is_created_with_full_length_available(client: AsyncClient) -> None:
@@ -39,7 +21,7 @@ async def test_reserve_then_cancel_moves_fabric_back_and_forth(client: AsyncClie
     assert order["status"] == "draft"
     assert order["required_meters"] == "280.00"
 
-    reserved = await client.post(f"/orders/{order['id']}/reserve")
+    reserved = await reserve(client, order["id"])
     assert reserved.status_code == 200
     assert reserved.json()["status"] == "reserved"
     assert sorted(line["meters"] for line in reserved.json()["lines"]) == ["100.00", "180.00"]
@@ -47,7 +29,7 @@ async def test_reserve_then_cancel_moves_fabric_back_and_forth(client: AsyncClie
     rolls = (await client.get("/rolls", params={"sku": "TKN-0001"})).json()
     assert sorted(roll["available_meters"] for roll in rolls) == ["0.00", "70.00"]
 
-    cancelled = await client.post(f"/orders/{order['id']}/cancel")
+    cancelled = await cancel(client, order["id"])
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
     rolls = (await client.get("/rolls", params={"sku": "TKN-0001"})).json()
@@ -61,7 +43,7 @@ async def test_not_enough_fabric_is_conflict(client: AsyncClient) -> None:
     await add_roll(client, "100")
     order = await add_order(client, 200, "1.4")
 
-    response = await client.post(f"/orders/{order['id']}/reserve")
+    response = await reserve(client, order["id"])
 
     assert response.status_code == 409
     assert response.json()["error"] == "insufficient_fabric"
@@ -72,7 +54,7 @@ async def test_other_sku_rolls_are_not_used(client: AsyncClient) -> None:
     await add_roll(client, "500", sku="DNM-0001")
     order = await add_order(client, 10, "1")
 
-    response = await client.post(f"/orders/{order['id']}/reserve")
+    response = await reserve(client, order["id"])
 
     assert response.status_code == 409
 
@@ -80,9 +62,9 @@ async def test_other_sku_rolls_are_not_used(client: AsyncClient) -> None:
 async def test_reserving_twice_is_conflict(client: AsyncClient) -> None:
     await add_roll(client, "100")
     order = await add_order(client, 10, "1")
-    await client.post(f"/orders/{order['id']}/reserve")
+    await reserve(client, order["id"])
 
-    response = await client.post(f"/orders/{order['id']}/reserve")
+    response = await reserve(client, order["id"])
 
     assert response.status_code == 409
     assert response.json()["error"] == "invalid_order_status"
@@ -91,7 +73,7 @@ async def test_reserving_twice_is_conflict(client: AsyncClient) -> None:
 async def test_draft_can_not_be_cancelled(client: AsyncClient) -> None:
     order = await add_order(client, 10, "1")
 
-    response = await client.post(f"/orders/{order['id']}/cancel")
+    response = await cancel(client, order["id"])
 
     assert response.status_code == 409
     assert response.json()["error"] == "invalid_order_status"
