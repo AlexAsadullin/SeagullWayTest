@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -71,6 +71,13 @@ class IdempotencyKeyRow(Base):
 
 class OutboxRow(Base):
     __tablename__ = "outbox"
+    __table_args__ = (
+        Index(
+            "ix_outbox_unpublished",
+            "published_at",
+            postgresql_where=text("published_at is null"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     event_type: Mapped[str] = mapped_column(String(64))
